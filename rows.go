@@ -16,7 +16,7 @@ import (
 type sphinxqlField struct {
 	name      string
 	fieldType byte
-	flags     FieldFlag
+	flags     fieldFlag
 }
 
 type sphinxqlRows struct {

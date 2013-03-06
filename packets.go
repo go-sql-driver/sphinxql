@@ -87,12 +87,16 @@ func (mc *sphinxqlConn) readInitPacket() (err error) {
 		return
 	}
 
+	if data[0] == 255 {
+		return mc.handleErrorPacket(data)
+	}
+
 	// protocol version [1 byte]
-	if data[0] < MIN_PROTOCOL_VERSION {
+	if data[0] < minProtocolVersion {
 		err = fmt.Errorf(
 			"Unsupported MySQL Protocol Version %d. Protocol Version %d or higher is required",
 			data[0],
-			MIN_PROTOCOL_VERSION)
+			minProtocolVersion)
 	}
 
 	// server version [null terminated string]
@@ -106,8 +110,8 @@ func (mc *sphinxqlConn) readInitPacket() (err error) {
 	pos += 8 + 1
 
 	// capability flags (lower 2 bytes) [2 bytes]
-	mc.flags = ClientFlag(binary.LittleEndian.Uint16(data[pos : pos+2]))
-	if mc.flags&CLIENT_PROTOCOL_41 == 0 {
+	mc.flags = clientFlag(binary.LittleEndian.Uint16(data[pos : pos+2]))
+	if mc.flags&clientProtocol41 == 0 {
 		err = errors.New("SphinxQL-Server does not support required Protocol 41+")
 	}
 	pos += 2
@@ -142,13 +146,13 @@ func (mc *sphinxqlConn) readInitPacket() (err error) {
 func (mc *sphinxqlConn) writeAuthPacket() error {
 	// Adjust client flags based on server support
 	clientFlags := uint32(
-		CLIENT_PROTOCOL_41 |
-			CLIENT_SECURE_CONN |
-			CLIENT_LONG_PASSWORD |
-			CLIENT_TRANSACTIONS,
+		clientProtocol41 |
+			clientSecureConn |
+			clientLongPassword |
+			clientTransactions,
 	)
-	if mc.flags&CLIENT_LONG_FLAG > 0 {
-		clientFlags |= uint32(CLIENT_LONG_FLAG)
+	if mc.flags&clientLongFlag > 0 {
+		clientFlags |= uint32(clientLongFlag)
 	}
 
 	// User Password
@@ -159,7 +163,7 @@ func (mc *sphinxqlConn) writeAuthPacket() error {
 
 	// To specify a db name
 	if len(mc.cfg.dbname) > 0 {
-		clientFlags |= uint32(CLIENT_CONNECT_WITH_DB)
+		clientFlags |= uint32(clientConnectWithDB)
 		pktLen += len(mc.cfg.dbname) + 1
 	}
 
@@ -336,11 +340,16 @@ func (mc *sphinxqlConn) handleErrorPacket(data []byte) error {
 	// Error Number [16 bit uint]
 	errno := binary.LittleEndian.Uint16(data[1:3])
 
-	// SQL State [# + 5bytes string]
+	pos := 3
+
+	// SQL State [optional: # + 5bytes string]
 	//sqlstate := string(data[pos : pos+6])
+	if data[pos] == 0x23 {
+		pos = 9
+	}
 
 	// Error Message [string]
-	return fmt.Errorf("Error %d: %s", errno, string(data[9:]))
+	return fmt.Errorf("Error %d: %s", errno, string(data[pos:]))
 }
 
 // Ok Packet
@@ -435,7 +444,7 @@ func (mc *sphinxqlConn) readColumns(count int) (columns []sphinxqlField, err err
 		pos++
 
 		// Flags [16 bit uint]
-		columns[i].flags = FieldFlag(binary.LittleEndian.Uint16(data[pos : pos+2]))
+		columns[i].flags = fieldFlag(binary.LittleEndian.Uint16(data[pos : pos+2]))
 		//pos += 2
 
 		// Decimals [8 bit uint]
@@ -479,6 +488,7 @@ func (rows *sphinxqlRows) readRow(dest []driver.Value) (err error) {
 				continue
 			} else {
 				dest[i] = nil
+				continue
 			}
 		}
 		return // err
@@ -498,7 +508,7 @@ func (mc *sphinxqlConn) readUntilEOF() (err error) {
 		if err == nil && (data[0] != 254 || len(data) != 5) {
 			continue
 		}
-		return
+		return // Err or EOF
 	}
 	return
 }

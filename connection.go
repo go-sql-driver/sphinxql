@@ -16,7 +16,7 @@ import (
 
 type sphinxqlConn struct {
 	cfg          *config
-	flags        ClientFlag
+	flags        clientFlag
 	charset      byte
 	cipher       []byte
 	netConn      net.Conn
@@ -76,7 +76,7 @@ func (mc *sphinxqlConn) Begin() (driver.Tx, error) {
 }
 
 func (mc *sphinxqlConn) Close() (err error) {
-	mc.writeCommandPacket(COM_QUIT)
+	mc.writeCommandPacket(comQuit)
 	mc.cfg = nil
 	mc.buf = nil
 	mc.netConn.Close()
@@ -91,22 +91,21 @@ func (mc *sphinxqlConn) Prepare(query string) (driver.Stmt, error) {
 	}, nil
 }
 
-func (mc *sphinxqlConn) Exec(query string, args []driver.Value) (_ driver.Result, err error) {
+func (mc *sphinxqlConn) Exec(query string, args []driver.Value) (driver.Result, error) {
 	if len(args) == 0 {
 		mc.affectedRows = 0
 		mc.insertId = 0
 
-		err = mc.exec(query)
+		err := mc.exec(query)
 		if err == nil {
 			return &sphinxqlResult{
 				affectedRows: int64(mc.affectedRows),
 				insertId:     int64(mc.insertId),
 			}, err
-		} else {
-			return nil, err
 		}
-
+		return nil, err
 	}
+
 	return nil, errors.New("args not supported")
 
 }
@@ -114,7 +113,7 @@ func (mc *sphinxqlConn) Exec(query string, args []driver.Value) (_ driver.Result
 // Internal function to execute commands
 func (mc *sphinxqlConn) exec(query string) (err error) {
 	// Send command
-	err = mc.writeCommandPacketStr(COM_QUERY, query)
+	err = mc.writeCommandPacketStr(comQuery, query)
 	if err != nil {
 		return
 	}
@@ -134,17 +133,16 @@ func (mc *sphinxqlConn) exec(query string) (err error) {
 	return
 }
 
-func (mc *sphinxqlConn) Query(query string, args []driver.Value) (_ driver.Rows, err error) {
+func (mc *sphinxqlConn) Query(query string, args []driver.Value) (driver.Rows, error) {
 	if len(args) == 0 {
-		var rows *sphinxqlRows
 		// Send command
-		err = mc.writeCommandPacketStr(COM_QUERY, query)
+		err := mc.writeCommandPacketStr(comQuery, query)
 		if err == nil {
 			// Read Result
 			var resLen int
 			resLen, err = mc.readResultSetHeaderPacket()
 			if err == nil {
-				rows = &sphinxqlRows{mc, nil, false}
+				rows := &sphinxqlRows{mc, nil, false}
 
 				if resLen > 0 {
 					// Columns
